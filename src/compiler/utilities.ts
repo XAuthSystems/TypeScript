@@ -585,7 +585,7 @@ import {
     WriteFileCallback,
     WriteFileCallbackData,
     YieldExpression,
-} from "./_namespaces/ts";
+} from "./_namespaces/ts.js";
 
 /** @internal */
 export const resolvingEmptyArray: never[] = [];
@@ -6668,6 +6668,7 @@ export function getAllAccessorDeclarations(declarations: readonly Declaration[] 
  */
 export function getEffectiveTypeAnnotationNode(node: Node): TypeNode | undefined {
     if (!isInJSFile(node) && isFunctionDeclaration(node)) return undefined;
+    if (isTypeAliasDeclaration(node)) return undefined; // has a .type, is not a type annotation
     const type = (node as HasType).type;
     if (type || !isInJSFile(node)) return type;
     return isJSDocPropertyLikeTag(node) ? node.typeExpression && node.typeExpression.type : getJSDocType(node);
@@ -11105,7 +11106,8 @@ export function createNameResolver({
                         if (meaning & result.flags & SymbolFlags.Type && lastLocation.kind !== SyntaxKind.JSDoc) {
                             useResult = result.flags & SymbolFlags.TypeParameter
                                 // type parameters are visible in parameter list, return type and type parameter list
-                                ? lastLocation === (location as FunctionLikeDeclaration).type ||
+                                ? !!(lastLocation.flags & NodeFlags.Synthesized) || // Synthetic fake scopes are added for signatures so type parameters are accessible from them
+                                    lastLocation === (location as FunctionLikeDeclaration).type ||
                                     lastLocation.kind === SyntaxKind.Parameter ||
                                     lastLocation.kind === SyntaxKind.JSDocParameterTag ||
                                     lastLocation.kind === SyntaxKind.JSDocReturnTag ||
@@ -11124,6 +11126,7 @@ export function createNameResolver({
                                 // however it is detected separately when checking initializers of parameters
                                 // to make sure that they reference no variables declared after them.
                                 useResult = lastLocation.kind === SyntaxKind.Parameter ||
+                                    !!(lastLocation.flags & NodeFlags.Synthesized) || // Synthetic fake scopes are added for signatures so parameters are accessible from them
                                     (
                                         lastLocation === (location as FunctionLikeDeclaration).type &&
                                         !!findAncestor(result.valueDeclaration, isParameter)
