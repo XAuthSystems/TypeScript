@@ -3318,6 +3318,7 @@ declare namespace ts {
             setHostConfiguration(args: protocol.ConfigureRequestArguments): void;
             private getWatchOptionsFromProjectWatchOptions;
             closeLog(): void;
+            private sendSourceFileChange;
             /**
              * This function rebuilds the project for every file opened by the client
              * This does not reload contents of open files from disk. But we could do that if needed
@@ -3594,7 +3595,7 @@ declare namespace ts {
             readDirectory(rootDir: string, extensions: readonly string[], excludes: readonly string[] | undefined, includes: readonly string[] | undefined, depth?: number): string[];
         }
     }
-    const versionMajorMinor = "5.6";
+    const versionMajorMinor = "5.7";
     /** The version of the TypeScript compiler release */
     const version: string;
     /**
@@ -3982,10 +3983,11 @@ declare namespace ts {
         JSDocImportTag = 351,
         SyntaxList = 352,
         NotEmittedStatement = 353,
-        PartiallyEmittedExpression = 354,
-        CommaListExpression = 355,
-        SyntheticReferenceExpression = 356,
-        Count = 357,
+        NotEmittedTypeElement = 354,
+        PartiallyEmittedExpression = 355,
+        CommaListExpression = 356,
+        SyntheticReferenceExpression = 357,
+        Count = 358,
         FirstAssignment = 64,
         LastAssignment = 79,
         FirstCompoundAssignment = 65,
@@ -5211,6 +5213,9 @@ declare namespace ts {
     interface NotEmittedStatement extends Statement {
         readonly kind: SyntaxKind.NotEmittedStatement;
     }
+    interface NotEmittedTypeElement extends TypeElement {
+        readonly kind: SyntaxKind.NotEmittedTypeElement;
+    }
     /**
      * A list of comma-separated expressions. This node is only created by transformations.
      */
@@ -6120,6 +6125,27 @@ declare namespace ts {
         getBaseTypes(type: InterfaceType): BaseType[];
         getBaseTypeOfLiteralType(type: Type): Type;
         getWidenedType(type: Type): Type;
+        /**
+         * Gets the "awaited type" of a type.
+         *
+         * If an expression has a Promise-like type, the "awaited type" of the expression is
+         * derived from the type of the first argument of the fulfillment callback for that
+         * Promise's `then` method. If the "awaited type" is itself a Promise-like, it is
+         * recursively unwrapped in the same manner until a non-promise type is found.
+         *
+         * If an expression does not have a Promise-like type, its "awaited type" is the type
+         * of the expression.
+         *
+         * If the resulting "awaited type" is a generic object type, then it is wrapped in
+         * an `Awaited<T>`.
+         *
+         * In the event the "awaited type" circularly references itself, or is a non-Promise
+         * object-type with a callable `then()` method, an "awaited type" cannot be determined
+         * and the value `undefined` will be returned.
+         *
+         * This is used to reflect the runtime behavior of the `await` keyword.
+         */
+        getAwaitedType(type: Type): Type | undefined;
         getReturnTypeOfSignature(signature: Signature): Type;
         getNullableType(type: Type, flags: TypeFlags): Type;
         getNonNullableType(type: Type): Type;
@@ -7346,9 +7372,10 @@ declare namespace ts {
         TypeAssertions = 2,
         NonNullAssertions = 4,
         PartiallyEmittedExpressions = 8,
+        ExpressionsWithTypeArguments = 16,
         Assertions = 6,
-        All = 15,
-        ExcludeJSDocTypeAssertion = 16,
+        All = 31,
+        ExcludeJSDocTypeAssertion = -2147483648,
     }
     type ImmediatelyInvokedFunctionExpression = CallExpression & {
         readonly expression: FunctionExpression;
@@ -7790,6 +7817,7 @@ declare namespace ts {
         createSourceFile(statements: readonly Statement[], endOfFileToken: EndOfFileToken, flags: NodeFlags): SourceFile;
         updateSourceFile(node: SourceFile, statements: readonly Statement[], isDeclarationFile?: boolean, referencedFiles?: readonly FileReference[], typeReferences?: readonly FileReference[], hasNoDefaultLib?: boolean, libReferences?: readonly FileReference[]): SourceFile;
         createNotEmittedStatement(original: Node): NotEmittedStatement;
+        createNotEmittedTypeElement(): NotEmittedTypeElement;
         createPartiallyEmittedExpression(expression: Expression, original?: Node): PartiallyEmittedExpression;
         updatePartiallyEmittedExpression(node: PartiallyEmittedExpression, expression: Expression): PartiallyEmittedExpression;
         createCommaListExpression(elements: readonly Expression[]): CommaListExpression;
@@ -8240,6 +8268,7 @@ declare namespace ts {
         readonly interactiveInlayHints?: boolean;
         readonly allowRenameOfImportPath?: boolean;
         readonly autoImportFileExcludePatterns?: string[];
+        readonly autoImportSpecifierExcludeRegexes?: string[];
         readonly preferTypeOnlyAutoImports?: boolean;
         /**
          * Indicates whether imports should be organized in a case-insensitive manner.
@@ -9799,6 +9828,7 @@ declare namespace ts {
         dry?: boolean;
         force?: boolean;
         verbose?: boolean;
+        stopBuildOnErrors?: boolean;
         incremental?: boolean;
         assumeChangesOnlyAffectDirectDependencies?: boolean;
         declaration?: boolean;
